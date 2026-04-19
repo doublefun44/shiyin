@@ -128,8 +128,8 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 .heatmap-cell.today{box-shadow:0 0 0 1.5px var(--accent)}
 .heatmap-weekdays{display:flex;flex-direction:column;gap:3px;margin-right:4px;justify-content:flex-start}
 .heatmap-weekdays span{height:14px;font-size:9px;color:var(--gray);line-height:14px}
-.heatmap-months{display:grid;grid-template-columns:repeat(15,17px);margin-left:18px;margin-bottom:4px;gap:0}
-.heatmap-months span{font-size:9px;color:var(--gray);white-space:nowrap;grid-row:1}
+.heatmap-months{display:flex;margin-left:22px;margin-bottom:4px}
+.heatmap-months span{font-size:9px;color:var(--gray)}
 
 /* ── WRONG ANSWERS ── */
 .wrong-item{background:#fff;border:1px solid var(--light);border-radius:10px;padding:14px;margin-bottom:8px}
@@ -1058,13 +1058,28 @@ const POEM_STORIES={
 
 function getToday(){const d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate()}
 function getTodayPoem(){
+  const learned=getData('learned');
+  // 读取持久化的"当前学习指针"
+  let cursorId=null;
+  try{cursorId=JSON.parse(localStorage.getItem('poem_cursor'))}catch(e){}
+  // 起始基准：首次使用时按日期定一个起点，之后就不再随日期漂移
   const d=new Date();
   const baseIdx=Math.floor((d.getTime()/86400000))%POEMS.length;
-  const learned=getData('learned');
-  // 从基准索引开始，跳过已学诗词，找到第一首未学的
+  // 如果指针存在且指向的诗未学，直接返回它（跨天不变）
+  if(cursorId!=null){
+    const cur=POEMS.find(p=>p.id===cursorId);
+    if(cur&&!learned[cur.id]) return cur;
+  }
+  // 否则（首次使用 或 指针指向的诗已被打卡），从基准或指针位置找下一首未学的，并保存新指针
+  const startIdx=cursorId!=null
+    ? (POEMS.findIndex(p=>p.id===cursorId)+1)   // 已打卡，推进到下一首
+    : baseIdx;                                   // 首次使用
   for(let i=0;i<POEMS.length;i++){
-    const poem=POEMS[(baseIdx+i)%POEMS.length];
-    if(!learned[poem.id]) return poem;
+    const poem=POEMS[((startIdx<0?0:startIdx)+i)%POEMS.length];
+    if(!learned[poem.id]){
+      localStorage.setItem('poem_cursor',JSON.stringify(poem.id));
+      return poem;
+    }
   }
   // 如果全部学完，回到基准诗词
   return POEMS[baseIdx];
@@ -1245,6 +1260,9 @@ function undoCheckin(id){
 const r=getData('learned');
 delete r[id];
 setData('learned',r);
+// 撤销打卡时，把指针退回到这首诗，下次进入仍显示它
+localStorage.setItem('poem_cursor',JSON.stringify(id));
+curPoem=POEMS.find(p=>p.id===id)||curPoem;
 renderPoem();
 }
 
@@ -1538,14 +1556,14 @@ startDate.setDate(startDate.getDate()-totalDays+1);
 // 调整到周一开始
 startDate.setDate(startDate.getDate()-(startDate.getDay()||7)+1);
 
-// 月份标签(用 grid-column 精确对齐到对应周列,避免不同屏幕下错位)
+// 月份标签
 html+=`<div class="heatmap-months">`;
 let lastMonth=-1;
 for(let w=0;w<totalWeeks;w++){
   const d=new Date(startDate);d.setDate(d.getDate()+w*7);
   const m=d.getMonth();
   if(m!==lastMonth){
-    html+=`<span style="grid-column:${w+1}">${m+1}月</span>`;
+    html+=`<span style="width:${w===0?0:(17*1)}px"></span><span>${m+1}月</span>`;
     lastMonth=m;
   }
 }
@@ -1682,7 +1700,7 @@ function resetAllData(){
 }
 
 function confirmResetAllData(){
-  ['learned','scores','days','wrongs'].forEach(k=>localStorage.removeItem('poem_'+k));
+  ['learned','scores','days','wrongs','cursor'].forEach(k=>localStorage.removeItem('poem_'+k));
   closeDialog();
   // 回到诵读页，给一个轻提示
   curPoem=getTodayPoem();
